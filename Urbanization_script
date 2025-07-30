@@ -1,0 +1,30 @@
+// Author: Nabin Bist | Urbanization for FY2023/24 (proxy using WorldCover 2021)
+
+// 1. Load municipality boundaries
+var municipalities = ee.FeatureCollection('users/nabinbist2052/local_unit');
+
+// 2. Load ESA WorldCover 2021 (v200)
+var worldCover2021 = ee.ImageCollection('ESA/WorldCover/v200').first();
+
+// 3. Select built-up class
+var urbanMask = worldCover2021.select('Map').eq(50);
+
+// 4. Compute urban percentage
+var urbanStats = urbanMask.reduceRegions({
+  collection: municipalities,
+  reducer: ee.Reducer.mean(),
+  scale: 10
+}).map(function(feature) {
+  return feature.set('Urban_Percent', ee.Number(feature.get('mean')).multiply(100))
+                .set('Proxy_Year', 2021);
+});
+
+// 5. Export to Drive
+Export.table.toDrive({
+  collection: urbanStats,
+  description: 'Municipality_Urban_2021_proxy',
+  fileFormat: 'CSV'
+});
+
+// 6. Print preview
+print('Urban % by Municipality (WorldCover 2021 proxy)', urbanStats.limit(10));
