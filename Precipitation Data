@@ -1,0 +1,41 @@
+// CHIRPS Daily Precipitation for Nepal Municipalities (FY2023_24)
+// Author: Nabin Bist
+
+// 1. Load Nepal Municipality Boundary (Local Units)
+var municipalities = ee.FeatureCollection('users/nabinbist2052/local_unit');  // <-- Update this path if needed
+
+// 2. Define Fiscal Year 2023/24 (July 16, 2023 to July 15, 2024)
+var fiscalYear = {
+  name: 'FY2021_22',
+  start: '2021-07-16',
+  end: '2022-07-15'
+};
+
+// 3. Load CHIRPS Daily Precipitation Data
+var chirps = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY')
+                .filterDate(fiscalYear.start, fiscalYear.end)
+                .filterBounds(municipalities);
+
+// 4. Sum Daily Precipitation to get Total Annual Precipitation (in mm)
+var totalPrecipitation = chirps.select('precipitation')
+                               .sum()
+                               .rename('Annual_Precipitation_mm');
+
+// 5. Reduce to Municipality Level (Mean Precipitation in mm)
+var precipStats = totalPrecipitation.reduceRegions({
+  collection: municipalities,
+  reducer: ee.Reducer.mean(),
+  scale: 5000  // CHIRPS native resolution is ~5km
+}).map(function(feature) {
+  return feature.set('Fiscal_Year', fiscalYear.name);
+});
+
+// 6. Export to Google Drive as CSV
+Export.table.toDrive({
+  collection: precipStats,
+  description: fiscalYear.name + '_Municipality_Annual_Precipitation',
+  fileFormat: 'CSV'
+});
+
+// 7. Print Sample Data
+print('Sample Municipality-wise Annual Precipitation:', precipStats.limit(10));
