@@ -1,0 +1,38 @@
+
+// using SMAP Surface Soil Moisture (ssm) from the NASA_USDA/HSL/SMAP10KM_soil_moisture dataset.
+// Load Nepal Municipalities
+var municipalities = ee.FeatureCollection('users/nabinbist2052/local_unit');
+
+// Define Fiscal Year 2023/24
+var fiscalYear = {
+  name: 'FY2023_2024',
+  start: '2023-07-16',
+  end: '2024-07-15'
+};
+
+// Load SMAP Soil Moisture (Surface Soil Moisture)
+var smap = ee.ImageCollection('NASA_USDA/HSL/SMAP10KM_soil_moisture')
+            .filterDate(fiscalYear.start, fiscalYear.end)
+            .filterBounds(municipalities);
+
+// Compute Mean Soil Moisture (Convert % to m³/m³)
+var soilMoisture = smap.select('ssm').mean().divide(100).rename('Soil_Moisture_m3m3');
+
+// Reduce to Municipalities
+var smStats = soilMoisture.reduceRegions({
+  collection: municipalities,
+  reducer: ee.Reducer.mean(),
+  scale: 10000  // 10 km resolution (SMAP)
+}).map(function(feature) {
+  return feature.set('Fiscal_Year', fiscalYear.name);
+});
+
+// Export to Drive
+Export.table.toDrive({
+  collection: smStats,
+  description: fiscalYear.name + '_Municipality_Soil_Moisture',
+  fileFormat: 'CSV'
+});
+
+// Print Preview
+print('Soil Moisture Stats (m3/m3):', smStats.limit(10));
