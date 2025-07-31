@@ -1,0 +1,66 @@
+// ============================
+// LST Day Mean 2019 - Transparent Boundary Outline
+// ============================
+
+// Load your custom shapefile boundary from Assets
+var customBoundary = ee.FeatureCollection("users/nabinbist2052/province");  // <-- Change this Asset ID
+
+// Define time range for 2019
+var startDate = '2024-01-01';
+var endDate = '2024-12-31';
+
+// Load MODIS Terra LST Daily Product (Version 061)
+var modisLST = ee.ImageCollection('MODIS/061/MOD11A1')
+                .select(['LST_Day_1km', 'QC_Day'])
+                .filterDate(startDate, endDate)
+                .filterBounds(customBoundary);
+
+// Function to process Day LST and apply QC mask
+var processDayLST = function(image) {
+  var qc = image.select('QC_Day');
+  var qualityMask = qc.bitwiseAnd(3).lte(2);  // Relaxed QC Mask
+  
+  var lstDay = image.select('LST_Day_1km')
+                   .multiply(0.02)
+                   .subtract(273.15)  // Convert to °C
+                   .updateMask(qualityMask);
+  
+  return lstDay.copyProperties(image, ['system:time_start']);
+};
+
+// Apply processing to collection
+var lstDayProcessed = modisLST.map(processDayLST);
+
+// Calculate Mean Day LST for 2019
+var lstDayMean = lstDayProcessed.mean().clip(customBoundary);
+
+// Visualization parameters for LST
+var visParams = {
+  min: -10,
+  max: 40,
+  palette: ['blue', 'cyan', 'green', 'yellow', 'orange', 'red']
+};
+
+// Style the boundary as transparent fill and black outline
+ var styledBoundary = customBoundary.style({
+  color: 'white',        // Boundary line color
+  width: 0,              // Line thickness
+  fillColor: '00000000'  // Transparent fill (alpha = 00)
+});
+
+// Add layers to the map
+Map.centerObject(customBoundary, 7);
+Map.addLayer(lstDayMean, visParams, 'Day LST Mean (2019)');
+Map.addLayer(styledBoundary, {}, 'Boundary Outline');
+
+// Export the Mean LST as GeoTIFF to Google Drive
+Export.image.toDrive({
+  image: lstDayMean,
+  description: 'CustomBoundary_Day_LST_Mean_2019',
+  folder: 'LST_Export',
+  region: customBoundary.geometry(),
+  scale: 1000,
+  crs: 'EPSG:4326',
+  maxPixels: 1e13,
+  fileFormat: 'GeoTIFF'
+});
