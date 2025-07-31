@@ -1,0 +1,48 @@
+// Load Nepal Province Boundary
+var customBoundary = ee.FeatureCollection("users/nabinbist2052/province");
+
+// Load GLDAS V2.1 (3-hourly Specific Humidity at 2m)
+var gldas = ee.ImageCollection("NASA/GLDAS/V021/NOAH/G025/T3H")
+               .select('Qair_f_inst');  // Specific Humidity (kg/kg)
+
+// Fiscal Year Periods
+var fiscalYears = [
+  {name: 'FY2019_2020', start: '2019-07-16', end: '2020-07-15'},
+  {name: 'FY2020_2021', start: '2020-07-16', end: '2021-07-15'},
+  {name: 'FY2021_2022', start: '2021-07-16', end: '2022-07-15'},
+  {name: 'FY2022_2023', start: '2022-07-16', end: '2023-07-15'},
+  {name: 'FY2023_2024', start: '2023-07-16', end: '2024-07-15'}
+];
+
+// Visualization Parameters (Specific Humidity)
+var humidityVis = {
+  min: 0,
+  max: 0.03,  // Typical range for Specific Humidity (kg/kg)
+  palette: ['white', 'lightblue', 'blue', 'purple']
+};
+
+// Loop over Fiscal Years, compute mean humidity, visualize, export
+fiscalYears.forEach(function(fy) {
+  var humidity_fy = gldas.filterDate(fy.start, fy.end)
+                         .filterBounds(customBoundary)
+                         .mean()
+                         .clip(customBoundary);
+  
+  // Add to Map
+  Map.addLayer(humidity_fy, humidityVis, 'Specific Humidity ' + fy.name);
+
+  // Export to Google Drive
+  Export.image.toDrive({
+    image: humidity_fy,
+    description: 'Nepal_SpecificHumidity_' + fy.name,
+    folder: 'Humidity_FY_Export',
+    region: customBoundary.geometry(),
+    scale: 25000,  // GLDAS native resolution (~25 km)
+    crs: 'EPSG:4326',
+    maxPixels: 1e13,
+    fileFormat: 'GeoTIFF'
+  });
+});
+
+// Center Map
+Map.centerObject(customBoundary, 7);
