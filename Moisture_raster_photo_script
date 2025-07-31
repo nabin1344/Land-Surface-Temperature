@@ -1,0 +1,59 @@
+// ============================
+// Annual Precipitation 2024 - Transparent Boundary Outline
+// ============================
+
+// Load your custom shapefile boundary from Assets
+var customBoundary = ee.FeatureCollection("users/nabinbist2052/province");  // <-- Use your shapefile asset
+
+// Define time range for 2024
+var startDate = '2023-07-16';
+var endDate = '2024-07-15';
+
+// Load CHIRPS Daily Precipitation Dataset
+var chirps = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY')
+              .filterDate(startDate, endDate)
+              .filterBounds(customBoundary);
+
+// Calculate Annual Total Precipitation for 2024
+var annualPrecip = chirps.sum().clip(customBoundary);
+
+// Visualization parameters for Precipitation
+var precipVis = {
+  min: 0,
+  max: 4000,  // Adjust if necessary
+  palette: [
+    'ADD8E6',  // Light Blue
+    '1E90FF',  // Dodger Blue
+    '0000FF',  // Blue
+    '800080',  // Purple
+    '008000',  // Green
+    'FFFF00',  // Yellow
+    'FFA500',  // Orange
+    'FF0000',  // Red
+    '8B0000'   // Dark Red
+  ]
+};
+
+// Style the boundary as transparent fill and white outline
+var styledBoundary = customBoundary.style({
+  color: 'white',        // Boundary outline color
+  width: 0,              // Line thickness (0 = very thin)
+  fillColor: '00000000'  // Transparent fill (alpha = 00)
+});
+
+// Add layers to the map
+Map.centerObject(customBoundary, 7);
+Map.addLayer(annualPrecip, precipVis, 'Annual Precipitation 2024');
+Map.addLayer(styledBoundary, {}, 'Boundary Outline');
+
+// Export the Annual Precipitation as GeoTIFF to Google Drive
+Export.image.toDrive({
+  image: annualPrecip,
+  description: 'CustomBoundary_Annual_Precipitation_2024',
+  folder: 'Precipitation_Export',
+  region: customBoundary.geometry(),
+  scale: 5000,  // CHIRPS native resolution (~5km)
+  crs: 'EPSG:4326',
+  maxPixels: 1e13,
+  fileFormat: 'GeoTIFF'
+});
