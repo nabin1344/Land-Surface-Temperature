@@ -1,0 +1,633 @@
+// ****************** For five year graph data ************************
+// Land Surface Temperature (LST) Day and Night Analysis for Nepal
+// Using MODIS Terra LST Product (MOD11A1) with Export to Google Drive
+
+// Define Nepal boundary
+var nepal = ee.FeatureCollection("USDOS/LSIB_SIMPLE/2017")
+             .filter(ee.Filter.eq('country_na', 'Nepal'));
+
+// Define time range - Year 2019 for monthly analysis
+var startDate = '2019-01-01';
+var endDate = '2019-12-31';
+
+// Load MODIS Terra LST Collection (MOD11A1) - Version 061
+var modisLST = ee.ImageCollection('MODIS/061/MOD11A1')
+                .select(['LST_Day_1km', 'LST_Night_1km', 'QC_Day', 'QC_Night'])
+                .filterDate(startDate, endDate)
+                .filterBounds(nepal);
+
+// Check collection size
+print('Total MODIS images in collection:', modisLST.size());
+print('Date range:', startDate, 'to', endDate);
+
+// Function to process Day LST
+var processDayLST = function(image) {
+  var qcDay = image.select('QC_Day');
+  var qualityMask = qcDay.bitwiseAnd(3).lte(2); // Relaxed quality mask
+  
+  var lstDay = image.select('LST_Day_1km')
+                   .multiply(0.02)
+                   .subtract(273.15)
+                   .updateMask(qualityMask);
+  
+  return lstDay.copyProperties(image, ['system:time_start']);
+};
+
+// Function to process Night LST
+var processNightLST = function(image) {
+  var qcNight = image.select('QC_Night');
+  var qualityMask = qcNight.bitwiseAnd(3).lte(2); // Relaxed quality mask
+  
+  var lstNight = image.select('LST_Night_1km')
+                     .multiply(0.02)
+                     .subtract(273.15)
+                     .updateMask(qualityMask);
+  
+  return lstNight.copyProperties(image, ['system:time_start']);
+};
+
+// Process Day and Night LST
+var lstDay = modisLST.map(processDayLST);
+var lstNight = modisLST.map(processNightLST);
+
+print('Processed Day LST images:', lstDay.size());
+print('Processed Night LST images:', lstNight.size());
+
+// Calculate statistics for Day LST
+var dayMean = ee.Algorithms.If(
+  lstDay.size().gt(0),
+  lstDay.mean().clip(nepal),
+  ee.Image.constant(-999).clip(nepal)
+);
+
+var dayMax = ee.Algorithms.If(
+  lstDay.size().gt(0),
+  lstDay.max().clip(nepal),
+  ee.Image.constant(-999).clip(nepal)
+);
+
+var dayMin = ee.Algorithms.If(
+  lstDay.size().gt(0),
+  lstDay.min().clip(nepal),
+  ee.Image.constant(-999).clip(nepal)
+);
+
+// Calculate statistics for Night LST
+var nightMean = ee.Algorithms.If(
+  lstNight.size().gt(0),
+  lstNight.mean().clip(nepal),
+  ee.Image.constant(-999).clip(nepal)
+);
+
+var nightMax = ee.Algorithms.If(
+  lstNight.size().gt(0),
+  lstNight.max().clip(nepal),
+  ee.Image.constant(-999).clip(nepal)
+);
+
+var nightMin = ee.Algorithms.If(
+  lstNight.size().gt(0),
+  lstNight.min().clip(nepal),
+  ee.Image.constant(-999).clip(nepal)
+);
+
+// Calculate Day-Night Temperature Difference
+var dayNightDiff = ee.Image(dayMean).subtract(ee.Image(nightMean));
+
+// Visualization parameters
+var tempVis = {
+  min: -10,
+  max: 40,
+  palette: ['blue', 'cyan', 'green', 'yellow', 'orange', 'red']
+};
+
+var diffVis = {
+  min: -20,
+  max: 20,
+  palette: ['blue', 'lightblue', 'white', 'pink', 'red']
+};
+
+// Add layers to map
+Map.centerObject(nepal, 7);
+Map.addLayer(nepal, {color: 'black', fillColor: '00000000'}, 'Nepal Boundary');
+
+// Day LST layers
+Map.addLayer(ee.Image(dayMean), tempVis, 'Day LST - Mean (°C)');
+Map.addLayer(ee.Image(dayMax), tempVis, 'Day LST - Maximum (°C)', false);
+Map.addLayer(ee.Image(dayMin), tempVis, 'Day LST - Minimum (°C)', false);
+
+// Night LST layers
+Map.addLayer(ee.Image(nightMean), tempVis, 'Night LST - Mean (°C)', false);
+Map.addLayer(ee.Image(nightMax), tempVis, 'Night LST - Maximum (°C)', false);
+Map.addLayer(ee.Image(nightMin), tempVis, 'Night LST - Minimum (°C)', false);
+
+// Day-Night difference
+Map.addLayer(dayNightDiff, diffVis, 'Day-Night LST Difference (°C)', false);
+
+// Create time series charts
+var createChart = function(collection, title, color) {
+  return ee.Algorithms.If(
+    collection.size().gt(0),
+    ui.Chart.image.series({
+      imageCollection: collection,
+      region: nepal,
+      reducer: ee.Reducer.mean(),
+      scale: 1000,
+      xProperty: 'system:time_start'
+    }).setOptions({
+      title: title,
+      vAxis: {title: 'Temperature (°C)'},
+      hAxis: {title: 'Date'},
+      lineWidth: 2,
+      pointSize: 3,
+      colors: [color]
+    }),
+    null
+  );
+};
+
+// Generate charts
+var dayChart = createChart(lstDay, 'Day LST Time Series - Nepal', 'red');
+var nightChart = createChart(lstNight, 'Night LST Time Series - Nepal', 'blue');
+
+print('Day LST Chart:', dayChart);
+print('Night LST Chart:', nightChart);
+
+// Combined Day-Night Chart
+var combinedChart = ui.Chart.image.series({
+  imageCollection: lstDay.select([0], ['Day_LST']).merge(lstNight.select([0], ['Night_LST'])),
+  region: nepal,
+  reducer: ee.Reducer.mean(),
+  scale: 1000,
+  xProperty: 'system:time_start'
+}).setOptions({
+  title: 'Day vs Night LST Comparison - Nepal',
+  vAxis: {title: 'Temperature (°C)'},
+  hAxis: {title: 'Date'},
+  lineWidth: 2,
+  pointSize: 3,
+  series: {
+    0: {color: 'red', labelInLegend: 'Day LST'},
+    1: {color: 'blue', labelInLegend: 'Night LST'}
+  }
+});
+
+print('Combined Day-Night Chart:', combinedChart);
+
+// Calculate and print summary statistics
+var printStats = function(image, name) {
+  var stats = ee.Image(image).reduceRegion({
+    reducer: ee.Reducer.mean().combine({
+      reducer2: ee.Reducer.minMax(),
+      sharedInputs: true
+    }),
+    geometry: nepal,
+    scale: 1000,
+    maxPixels: 1e9,
+    bestEffort: true
+  });
+  print(name + ' Statistics:', stats);
+};
+
+// Print statistics
+printStats(dayMean, 'Day LST');
+printStats(nightMean, 'Night LST');
+printStats(dayNightDiff, 'Day-Night Difference');
+
+// ========== EXPORT TO GOOGLE DRIVE ==========
+
+// Export Day LST Mean
+Export.image.toDrive({
+  image: ee.Image(dayMean),
+  description: 'Nepal_Day_LST_Mean_2019',
+  folder: 'Nepal_LST_Analysis',
+  region: nepal,
+  scale: 1000,
+  crs: 'EPSG:4326',
+  maxPixels: 1e9,
+  fileFormat: 'GeoTIFF'
+});
+
+// Export Night LST Mean
+Export.image.toDrive({
+  image: ee.Image(nightMean),
+  description: 'Nepal_Night_LST_Mean_2019',
+  folder: 'Nepal_LST_Analysis',
+  region: nepal,
+  scale: 1000,
+  crs: 'EPSG:4326',
+  maxPixels: 1e9,
+  fileFormat: 'GeoTIFF'
+});
+
+// Export Day LST Maximum
+Export.image.toDrive({
+  image: ee.Image(dayMax),
+  description: 'Nepal_Day_LST_Max_2019',
+  folder: 'Nepal_LST_Analysis',
+  region: nepal,
+  scale: 1000,
+  crs: 'EPSG:4326',
+  maxPixels: 1e9,
+  fileFormat: 'GeoTIFF'
+});
+
+// Export Night LST Maximum
+Export.image.toDrive({
+  image: ee.Image(nightMax),
+  description: 'Nepal_Night_LST_Max_2019',
+  folder: 'Nepal_LST_Analysis',
+  region: nepal,
+  scale: 1000,
+  crs: 'EPSG:4326',
+  maxPixels: 1e9,
+  fileFormat: 'GeoTIFF'
+});
+
+// Export Day LST Minimum
+Export.image.toDrive({
+  image: ee.Image(dayMin),
+  description: 'Nepal_Day_LST_Min_2019',
+  folder: 'Nepal_LST_Analysis',
+  region: nepal,
+  scale: 1000,
+  crs: 'EPSG:4326',
+  maxPixels: 1e9,
+  fileFormat: 'GeoTIFF'
+});
+
+// Export Night LST Minimum
+Export.image.toDrive({
+  image: ee.Image(nightMin),
+  description: 'Nepal_Night_LST_Min_2019',
+  folder: 'Nepal_LST_Analysis',
+  region: nepal,
+  scale: 1000,
+  crs: 'EPSG:4326',
+  maxPixels: 1e9,
+  fileFormat: 'GeoTIFF'
+});
+
+// Export Day-Night Difference
+Export.image.toDrive({
+  image: dayNightDiff,
+  description: 'Nepal_Day_Night_LST_Difference_2019',
+  folder: 'Nepal_LST_Analysis',
+  region: nepal,
+  scale: 1000,
+  crs: 'EPSG:4326',
+  maxPixels: 1e9,
+  fileFormat: 'GeoTIFF'
+});
+
+// Seasonal Analysis and Export
+var seasons = [
+  {name: 'Winter', months: [12, 1, 2], folder: 'Winter'},
+  {name: 'Spring', months: [3, 4, 5], folder: 'Spring'},
+  {name: 'Summer', months: [6, 7, 8], folder: 'Summer'},
+  {name: 'Autumn', months: [9, 10, 11], folder: 'Autumn'}
+];
+
+seasons.forEach(function(season) {
+  // Day LST seasonal
+  var seasonalDayLST = lstDay
+    .filter(ee.Filter.calendarRange(season.months[0], season.months[2], 'month'))
+    .mean()
+    .clip(nepal);
+  
+  // Night LST seasonal
+  var seasonalNightLST = lstNight
+    .filter(ee.Filter.calendarRange(season.months[0], season.months[2], 'month'))
+    .mean()
+    .clip(nepal);
+  
+  // Add to map (hidden by default)
+  Map.addLayer(seasonalDayLST, tempVis, season.name + ' Day LST (°C)', false);
+  Map.addLayer(seasonalNightLST, tempVis, season.name + ' Night LST (°C)', false);
+  
+  // Export seasonal data
+  Export.image.toDrive({
+    image: seasonalDayLST,
+    description: 'Nepal_' + season.folder + '_Day_LST_2019',
+    folder: 'Nepal_LST_Analysis/' + season.folder,
+    region: nepal,
+    scale: 1000,
+    crs: 'EPSG:4326',
+    maxPixels: 1e9,
+    fileFormat: 'GeoTIFF'
+  });
+  
+  Export.image.toDrive({
+    image: seasonalNightLST,
+    description: 'Nepal_' + season.folder + '_Night_LST_2019',
+    folder: 'Nepal_LST_Analysis/' + season.folder,
+    region: nepal,
+    scale: 1000,
+    crs: 'EPSG:4326',
+    maxPixels: 1e9,
+    fileFormat: 'GeoTIFF'
+  });
+});
+
+// ========== MONTHLY SUMMARY TABLE ANALYSIS ==========
+print('=== CREATING MONTHLY SUMMARY TABLE FOR 2019 ===');
+
+// Define months
+var months = ee.List.sequence(1, 12);
+var monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                  'July', 'August', 'September', 'October', 'November', 'December'];
+
+// Function to calculate monthly statistics
+var calculateMonthlyStats = function(month) {
+  month = ee.Number(month);
+  
+  // Filter collections by month
+  var monthlyDayLST = lstDay.filter(ee.Filter.calendarRange(month, month, 'month'));
+  var monthlyNightLST = lstNight.filter(ee.Filter.calendarRange(month, month, 'month'));
+  
+  // Calculate statistics for Day LST
+  var dayStats = ee.Algorithms.If(
+    monthlyDayLST.size().gt(0),
+    ee.Dictionary({
+      'Day_Mean': monthlyDayLST.mean().clip(nepal).reduceRegion({
+        reducer: ee.Reducer.mean(),
+        geometry: nepal,
+        scale: 1000,
+        maxPixels: 1e9,
+        bestEffort: true
+      }).get('LST_Day_1km'),
+      'Day_Min': monthlyDayLST.min().clip(nepal).reduceRegion({
+        reducer: ee.Reducer.min(),
+        geometry: nepal,
+        scale: 1000,
+        maxPixels: 1e9,
+        bestEffort: true
+      }).get('LST_Day_1km'),
+      'Day_Max': monthlyDayLST.max().clip(nepal).reduceRegion({
+        reducer: ee.Reducer.max(),
+        geometry: nepal,
+        scale: 1000,
+        maxPixels: 1e9,
+        bestEffort: true
+      }).get('LST_Day_1km')
+    }),
+    ee.Dictionary({
+      'Day_Mean': -999,
+      'Day_Min': -999,
+      'Day_Max': -999
+    })
+  );
+  
+  // Calculate statistics for Night LST
+  var nightStats = ee.Algorithms.If(
+    monthlyNightLST.size().gt(0),
+    ee.Dictionary({
+      'Night_Mean': monthlyNightLST.mean().clip(nepal).reduceRegion({
+        reducer: ee.Reducer.mean(),
+        geometry: nepal,
+        scale: 1000,
+        maxPixels: 1e9,
+        bestEffort: true
+      }).get('LST_Night_1km'),
+      'Night_Min': monthlyNightLST.min().clip(nepal).reduceRegion({
+        reducer: ee.Reducer.min(),
+        geometry: nepal,
+        scale: 1000,
+        maxPixels: 1e9,
+        bestEffort: true
+      }).get('LST_Night_1km'),
+      'Night_Max': monthlyNightLST.max().clip(nepal).reduceRegion({
+        reducer: ee.Reducer.max(),
+        geometry: nepal,
+        scale: 1000,
+        maxPixels: 1e9,
+        bestEffort: true
+      }).get('LST_Night_1km')
+    }),
+    ee.Dictionary({
+      'Night_Mean': -999,
+      'Night_Min': -999,
+      'Night_Max': -999
+    })
+  );
+  
+  // Combine all statistics
+  var combinedStats = ee.Dictionary(dayStats).combine(ee.Dictionary(nightStats));
+  
+  // Add month information
+  return ee.Feature(null, combinedStats.set('Month', month).set('Month_Name', monthNames[month.subtract(1).getInfo()]));
+};
+
+// Calculate monthly statistics for all months
+var monthlyStatsCollection = ee.FeatureCollection(months.map(calculateMonthlyStats));
+
+// Print monthly summary table
+print('📊 MONTHLY LST SUMMARY TABLE - NEPAL 2019:');
+print(monthlyStatsCollection);
+
+// Create a more detailed summary table
+var createDetailedSummary = function() {
+  var summaryList = months.map(function(month) {
+    month = ee.Number(month);
+    
+    var monthlyDayLST = lstDay.filter(ee.Filter.calendarRange(month, month, 'month'));
+    var monthlyNightLST = lstNight.filter(ee.Filter.calendarRange(month, month, 'month'));
+    
+    // Get comprehensive statistics
+    var dayStatsComprehensive = ee.Algorithms.If(
+      monthlyDayLST.size().gt(0),
+      monthlyDayLST.mean().clip(nepal).reduceRegion({
+        reducer: ee.Reducer.mean().combine({
+          reducer2: ee.Reducer.minMax(),
+          sharedInputs: true
+        }).combine({
+          reducer2: ee.Reducer.stdDev(),
+          sharedInputs: true
+        }),
+        geometry: nepal,
+        scale: 1000,
+        maxPixels: 1e9,
+        bestEffort: true
+      }),
+      ee.Dictionary({
+        'LST_Day_1km_mean': -999,
+        'LST_Day_1km_min': -999,
+        'LST_Day_1km_max': -999,
+        'LST_Day_1km_stdDev': -999
+      })
+    );
+    
+    var nightStatsComprehensive = ee.Algorithms.If(
+      monthlyNightLST.size().gt(0),
+      monthlyNightLST.mean().clip(nepal).reduceRegion({
+        reducer: ee.Reducer.mean().combine({
+          reducer2: ee.Reducer.minMax(),
+          sharedInputs: true
+        }).combine({
+          reducer2: ee.Reducer.stdDev(),
+          sharedInputs: true
+        }),
+        geometry: nepal,
+        scale: 1000,
+        maxPixels: 1e9,
+        bestEffort: true
+      }),
+      ee.Dictionary({
+        'LST_Night_1km_mean': -999,
+        'LST_Night_1km_min': -999,
+        'LST_Night_1km_max': -999,
+        'LST_Night_1km_stdDev': -999
+      })
+    );
+    
+    return ee.Feature(null, {
+      'Month': month,
+      'Month_Name': monthNames[month.subtract(1).getInfo()],
+      'Day_Count': monthlyDayLST.size(),
+      'Night_Count': monthlyNightLST.size(),
+      'Day_Mean_C': ee.Dictionary(dayStatsComprehensive).get('LST_Day_1km_mean'),
+      'Day_Min_C': ee.Dictionary(dayStatsComprehensive).get('LST_Day_1km_min'),
+      'Day_Max_C': ee.Dictionary(dayStatsComprehensive).get('LST_Day_1km_max'),
+      'Day_StdDev_C': ee.Dictionary(dayStatsComprehensive).get('LST_Day_1km_stdDev'),
+      'Night_Mean_C': ee.Dictionary(nightStatsComprehensive).get('LST_Night_1km_mean'),
+      'Night_Min_C': ee.Dictionary(nightStatsComprehensive).get('LST_Night_1km_min'),
+      'Night_Max_C': ee.Dictionary(nightStatsComprehensive).get('LST_Night_1km_max'),
+      'Night_StdDev_C': ee.Dictionary(nightStatsComprehensive).get('LST_Night_1km_stdDev')
+    });
+  });
+  
+  return ee.FeatureCollection(summaryList);
+};
+
+var detailedMonthlySummary = createDetailedSummary();
+
+// Export detailed monthly summary table
+Export.table.toDrive({
+  collection: detailedMonthlySummary,
+  description: 'Nepal_Monthly_LST_Summary_2019_Detailed',
+  folder: 'Nepal_LST_Analysis',
+  fileFormat: 'CSV',
+  selectors: ['Month', 'Month_Name', 'Day_Count', 'Night_Count', 
+             'Day_Mean_C', 'Day_Min_C', 'Day_Max_C', 'Day_StdDev_C',
+             'Night_Mean_C', 'Night_Min_C', 'Night_Max_C', 'Night_StdDev_C']
+});
+
+// Create a simplified summary table
+var simplifiedSummary = ee.FeatureCollection(months.map(function(month) {
+  month = ee.Number(month);
+  
+  var monthlyDayLST = lstDay.filter(ee.Filter.calendarRange(month, month, 'month'));
+  var monthlyNightLST = lstNight.filter(ee.Filter.calendarRange(month, month, 'month'));
+  
+  var dayMean = ee.Algorithms.If(monthlyDayLST.size().gt(0),
+    monthlyDayLST.mean().clip(nepal).reduceRegion({
+      reducer: ee.Reducer.mean(),
+      geometry: nepal,
+      scale: 1000,
+      maxPixels: 1e9
+    }).get('LST_Day_1km'), -999);
+    
+  var dayMin = ee.Algorithms.If(monthlyDayLST.size().gt(0),
+    monthlyDayLST.min().clip(nepal).reduceRegion({
+      reducer: ee.Reducer.min(),
+      geometry: nepal,
+      scale: 1000,
+      maxPixels: 1e9
+    }).get('LST_Day_1km'), -999);
+    
+  var dayMax = ee.Algorithms.If(monthlyDayLST.size().gt(0),
+    monthlyDayLST.max().clip(nepal).reduceRegion({
+      reducer: ee.Reducer.max(),
+      geometry: nepal,
+      scale: 1000,
+      maxPixels: 1e9
+    }).get('LST_Day_1km'), -999);
+    
+  var nightMean = ee.Algorithms.If(monthlyNightLST.size().gt(0),
+    monthlyNightLST.mean().clip(nepal).reduceRegion({
+      reducer: ee.Reducer.mean(),
+      geometry: nepal,
+      scale: 1000,
+      maxPixels: 1e9
+    }).get('LST_Night_1km'), -999);
+    
+  var nightMin = ee.Algorithms.If(monthlyNightLST.size().gt(0),
+    monthlyNightLST.min().clip(nepal).reduceRegion({
+      reducer: ee.Reducer.min(),
+      geometry: nepal,
+      scale: 1000,
+      maxPixels: 1e9
+    }).get('LST_Night_1km'), -999);
+    
+  var nightMax = ee.Algorithms.If(monthlyNightLST.size().gt(0),
+    monthlyNightLST.max().clip(nepal).reduceRegion({
+      reducer: ee.Reducer.max(),
+      geometry: nepal,
+      scale: 1000,
+      maxPixels: 1e9
+    }).get('LST_Night_1km'), -999);
+  
+  return ee.Feature(null, {
+    'Month': monthNames[month.subtract(1).getInfo()],
+    'Day_Mean': dayMean,
+    'Day_Min': dayMin,
+    'Day_Max': dayMax,
+    'Night_Mean': nightMean,
+    'Night_Min': nightMin,
+    'Night_Max': nightMax
+  });
+}));
+
+// Export simplified monthly summary
+Export.table.toDrive({
+  collection: simplifiedSummary,
+  description: 'Nepal_Monthly_LST_Summary_2019_Simple',
+  folder: 'Nepal_LST_Analysis',
+  fileFormat: 'CSV'
+});
+
+print('📋 Monthly summary tables created!');
+print('• Detailed summary: Includes standard deviation and data counts');
+print('• Simple summary: Just Min, Max, Mean for Day and Night');
+print('• Both tables will be exported as CSV files');
+
+// Print a preview of the monthly data
+print('🔍 Preview of Monthly Statistics:');
+var printMonthlyPreview = function() {
+  for (var i = 1; i <= 12; i++) {
+    var monthlyDay = lstDay.filter(ee.Filter.calendarRange(i, i, 'month'));
+    var monthlyNight = lstNight.filter(ee.Filter.calendarRange(i, i, 'month'));
+    
+    print(monthNames[i-1] + ' 2019:');
+    print('  Day images available:', monthlyDay.size());
+    print('  Night images available:', monthlyNight.size());
+  }
+};
+
+// Call the preview function
+printMonthlyPreview();
+
+print('=== EXPORT SUMMARY ===');
+print('🚀 Export tasks created! Check the "Tasks" tab to run them.');
+print('📁 Files will be saved to Google Drive in folder: Nepal_LST_Analysis');
+print('');
+print('📊 Export includes:');
+print('• Day & Night LST (Mean, Max, Min) - 2019');
+print('• Day-Night Difference');
+print('• Seasonal data (Winter, Spring, Summer, Autumn)');
+print('• 📋 MONTHLY SUMMARY TABLES (NEW!):');
+print('  - Detailed: Nepal_Monthly_LST_Summary_2019_Detailed.csv');
+print('  - Simple: Nepal_Monthly_LST_Summary_2019_Simple.csv');
+print('');
+print('📋 Monthly Summary Table Columns:');
+print('📈 Simple Table: Month | Day_Mean | Day_Min | Day_Max | Night_Mean | Night_Min | Night_Max');
+print('📊 Detailed Table: Above + Standard Deviation + Data Count for each month');
+print('');
+print('💡 To run exports:');
+print('1. Click the "Tasks" tab (next to Console)');
+print('2. Click "RUN" for each export task');
+print('3. Files will appear in your Google Drive');
+print('');
+print('📏 Resolution: 1km (MODIS native resolution)');
+print('📅 Time period: 2019 (Full Year Monthly Analysis)');
+print('🗺️ Format: GeoTIFF (for raster) + CSV (for monthly tables)');
