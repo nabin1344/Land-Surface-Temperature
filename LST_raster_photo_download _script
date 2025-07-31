@@ -1,4 +1,4 @@
-// ============================
+// =============DAY===============
 // LST Day Mean 2019 - Transparent Boundary Outline
 // ============================
 
@@ -57,6 +57,75 @@ Map.addLayer(styledBoundary, {}, 'Boundary Outline');
 Export.image.toDrive({
   image: lstDayMean,
   description: 'CustomBoundary_Day_LST_Mean_2019',
+  folder: 'LST_Export',
+  region: customBoundary.geometry(),
+  scale: 1000,
+  crs: 'EPSG:4326',
+  maxPixels: 1e13,
+  fileFormat: 'GeoTIFF'
+});
+
+
+// =============NIGHT===============
+// ============================
+// LST Night Mean 2024 - Transparent Boundary Outline
+// ============================
+
+// Load your custom shapefile boundary from Assets
+var customBoundary = ee.FeatureCollection("users/nabinbist2052/province");  // <-- Your Shapefile Asset
+
+// Define time range for 2024
+var startDate = '2024-01-01';
+var endDate = '2024-12-31';
+
+// Load MODIS Terra LST Daily Product (Version 061)
+var modisLST = ee.ImageCollection('MODIS/061/MOD11A1')
+                .select(['LST_Night_1km', 'QC_Night'])
+                .filterDate(startDate, endDate)
+                .filterBounds(customBoundary);
+
+// Function to process Night LST and apply QC mask
+var processNightLST = function(image) {
+  var qc = image.select('QC_Night');
+  var qualityMask = qc.bitwiseAnd(3).lte(2);  // Relaxed QC Mask
+  
+  var lstNight = image.select('LST_Night_1km')
+                      .multiply(0.02)
+                      .subtract(273.15)  // Convert to °C
+                      .updateMask(qualityMask);
+  
+  return lstNight.copyProperties(image, ['system:time_start']);
+};
+
+// Apply processing to collection
+var lstNightProcessed = modisLST.map(processNightLST);
+
+// Calculate Mean Night LST for 2024
+var lstNightMean = lstNightProcessed.mean().clip(customBoundary);
+
+// Visualization parameters for Night LST
+var visParams = {
+  min: -10,
+  max: 30,
+  palette: ['blue', 'cyan', 'green', 'yellow', 'orange', 'red']
+};
+
+// Style the boundary as transparent fill and white outline
+var styledBoundary = customBoundary.style({
+  color: 'white',        // Boundary outline color
+  width: 0,              // Line thickness
+  fillColor: '00000000'  // Transparent fill (alpha = 00)
+});
+
+// Add layers to the map
+Map.centerObject(customBoundary, 7);
+Map.addLayer(lstNightMean, visParams, 'Night LST Mean (2024)');
+Map.addLayer(styledBoundary, {}, 'Boundary Outline');
+
+// Export the Mean Night LST as GeoTIFF to Google Drive
+Export.image.toDrive({
+  image: lstNightMean,
+  description: 'CustomBoundary_Night_LST_Mean_2024',
   folder: 'LST_Export',
   region: customBoundary.geometry(),
   scale: 1000,
