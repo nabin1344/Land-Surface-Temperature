@@ -1,0 +1,48 @@
+// Load Nepal Boundary
+var customBoundary = ee.FeatureCollection("users/nabinbist2052/province");
+
+// Load GHAP PM2.5 ImageCollection
+var ghap_pm25 = ee.ImageCollection("projects/sat-io/open-datasets/GHAP/GHAP_Y1K_PM25");
+
+// Fiscal Year List (Calendar Year Approximation)
+var fiscalYears = [
+  {name: 'FY2019_2020', start: '2019-01-01', end: '2019-12-31'},
+  {name: 'FY2020_2021', start: '2020-01-01', end: '2020-12-31'},
+  {name: 'FY2021_2022', start: '2021-01-01', end: '2021-12-31'},
+  {name: 'FY2022_2023', start: '2022-01-01', end: '2022-12-31'},
+  {name: 'FY2023_2024', start: '2023-01-01', end: '2023-12-31'}
+];
+
+// Visualization Parameters
+var pm25Vis = {
+  min: 0,
+  max: 50,
+  palette: ['white', 'lightgreen', 'yellow', 'orange', 'red']
+};
+
+// Loop through Fiscal Years
+fiscalYears.forEach(function(fy) {
+  // Filter GHAP data by Date Range
+  var img = ghap_pm25.filterDate(fy.start, fy.end)
+                     .filterBounds(customBoundary)
+                     .mean()
+                     .clip(customBoundary);
+
+  // Add Layer to Map
+  Map.addLayer(img, pm25Vis, 'PM2.5 ' + fy.name);
+
+  // Export as GeoTIFF
+  Export.image.toDrive({
+    image: img,
+    description: 'Nepal_PM25_' + fy.name,
+    folder: 'AirQuality_FY_PM25_GHAP',
+    region: customBoundary.geometry(),
+    scale: 1000,
+    crs: 'EPSG:4326',
+    maxPixels: 1e13,
+    fileFormat: 'GeoTIFF'
+  });
+});
+
+// Center Map
+Map.centerObject(customBoundary, 7);
