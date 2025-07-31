@@ -1,0 +1,27 @@
+// Load Municipality Boundary (Local Unit)
+var municipalities = ee.FeatureCollection("users/nabinbist2052/local_unit");
+
+// Load GLDAS Specific Humidity (3-hourly)
+var gldas = ee.ImageCollection("NASA/GLDAS/V021/NOAH/G025/T3H")
+               .select('Qair_f_inst');  // Specific Humidity at 2m (kg/kg)
+
+// Fiscal Year 2023/24
+var humidity_FY2023_2024 = gldas.filterDate('2023-07-16', '2024-07-15')
+                                .filterBounds(municipalities)
+                                .mean();
+
+var humidityStats_FY2023_2024 = humidity_FY2023_2024.reduceRegions({
+  collection: municipalities,
+  reducer: ee.Reducer.mean(),
+  scale: 25000,
+  crs: 'EPSG:4326'
+});
+
+Export.table.toDrive({
+  collection: humidityStats_FY2023_2024,
+  description: 'Municipality_Humidity_FY2023_2024',
+  fileFormat: 'CSV',
+  folder: 'Humidity_Municipality_CSV'
+});
+
+
