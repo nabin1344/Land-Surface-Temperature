@@ -16,15 +16,15 @@ var urbanStats = urbanMask.reduceRegions({
   scale: 10
 }).map(function(feature) {
   return feature.set('Urban_Percent', ee.Number(feature.get('mean')).multiply(100))
-                .set('Proxy_Year', 2021);
+                .set('Proxy_Year', 2022);
 });
 
 // 5. Export to Drive
 Export.table.toDrive({
   collection: urbanStats,
-  description: 'Municipality_Urban_2021_proxy',
+  description: 'Municipality_Urban_2022_proxy',
   fileFormat: 'CSV'
 });
 
 // 6. Print preview
-print('Urban % by Municipality (WorldCover 2021 proxy)', urbanStats.limit(10));
+print('Urban % by Municipality (WorldCover 2022 proxy)', urbanStats.limit(10));
