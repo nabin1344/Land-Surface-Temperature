@@ -1,0 +1,52 @@
+//************URBANIZATION PHOTO********************
+// ==============================
+// Urbanization Map (2019-2024) using Dynamic World
+// ==============================
+
+// Load your boundary shapefile
+var customBoundary = ee.FeatureCollection("users/nabinbist2052/province");
+
+// Load Dynamic World (2019-2024)
+var dw = ee.ImageCollection("GOOGLE/DYNAMICWORLD/V1")
+            .filterDate('2020-07-16', '2021-07-15')
+            .filterBounds(customBoundary)
+            .select('label');
+
+// Select built-up class (Class 1: Built Area)
+var builtUpMask = dw.map(function(image) {
+  return image.eq(1).selfMask();
+});
+
+// Calculate built-up frequency (% occurrence of built-up per pixel)
+var builtUpFreq = builtUpMask.reduce(ee.Reducer.mean()).multiply(100);
+
+// Visualization parameters (similar color palette)
+var urbanVis = {
+  min: 0,
+  max: 100,
+  palette: ['FFFFFF', 'FFEDA0', 'FED976', 'FEB24C', 'FD8D3C', 'FC4E2A', 'E31A1C', 'BD0026', '800026']
+};
+
+// Style boundary outline
+var styledBoundary = customBoundary.style({
+  color: 'white',
+  width: 1,
+  fillColor: '00000000'
+});
+
+// Center Map and Add Layers
+Map.centerObject(customBoundary, 7);
+Map.addLayer(builtUpFreq.clip(customBoundary), urbanVis, 'Urbanization (2019-2024)');
+Map.addLayer(styledBoundary, {}, 'Boundary Outline');
+
+// Export as GeoTIFF
+Export.image.toDrive({
+  image: builtUpFreq.clip(customBoundary),
+  description: 'Nepal_Urbanization_DynamicWorld_2019_2024',
+  folder: 'Urbanization_Export',
+  region: customBoundary.geometry(),
+  scale: 10,  // Sentinel-2 native resolution (~10m)
+  crs: 'EPSG:4326',
+  maxPixels: 1e13,
+  fileFormat: 'GeoTIFF'
+});
